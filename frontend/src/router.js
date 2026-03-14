@@ -90,6 +90,11 @@ const routes = [
     component: () => import('@/pages/Calendar.vue'),
   },
   {
+    path: '/my-module',
+    name: 'My Module',
+    component: () => import('@/pages/MyModule.vue'),
+  },
+  {
     path: '/data-import',
     name: 'DataImportList',
     component: () => import('@/pages/DataImport.vue'),
