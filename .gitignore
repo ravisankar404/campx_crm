@@ -11,3 +11,10 @@ crm/www/crm.html
 build
 
 .vscode
+
+*.log
+*.rdb
+*.pyc
+__pycache__/
+env/
+sites/assets/
