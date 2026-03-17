@@ -1,5 +1,5 @@
 """
-Event notification handling for CRM.
+Event notification handling and participant API for CRM.
 
 This module handles event notifications for the CRM system, supporting both:
 1. Custom event notifications set on individual events
@@ -18,6 +18,43 @@ from datetime import datetime, timedelta
 
 import frappe
 from frappe.utils import add_to_date, now_datetime
+
+
+@frappe.whitelist()
+def get_event_participants(event_names):
+	"""
+	Return participants for a list of events.
+
+	Args:
+		event_names (list | str): JSON list or comma-separated event names
+
+	Returns:
+		dict: { event_name: [{ reference_doctype, reference_docname, email }] }
+	"""
+	if isinstance(event_names, str):
+		import json
+		try:
+			event_names = json.loads(event_names)
+		except Exception:
+			event_names = [e.strip() for e in event_names.split(",") if e.strip()]
+
+	if not event_names:
+		return {}
+
+	rows = frappe.db.get_all(
+		"Event Participants",
+		filters={"parent": ["in", event_names]},
+		fields=["parent", "reference_doctype", "reference_docname", "email"],
+	)
+
+	result = {}
+	for r in rows:
+		result.setdefault(r.parent, []).append({
+			"reference_doctype": r.reference_doctype,
+			"reference_docname": r.reference_docname,
+			"email": r.email,
+		})
+	return result
 
 
 def trigger_offset_event_notifications():

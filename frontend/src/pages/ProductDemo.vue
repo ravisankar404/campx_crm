@@ -163,22 +163,22 @@ function fetchDealOrgs(dealNames) {
 }
 
 // ── Step 3: Fetch all participants for listed events ──
-// Event Participants can reference Contact, User, Lead, etc.
-// We use the email field (directly stored) as fallback display,
-// and batch-fetch proper full names for Contact + User types.
+// frappe.client.get_list cannot query child doctypes directly.
+// We use a custom whitelist method that uses frappe.db.get_all instead.
 function fetchParticipants(eventNames) {
   createResource({
-    url: 'frappe.client.get_list',
-    params: {
-      doctype: 'Event Participants',
-      filters: [['parent', 'in', eventNames]],
-      fields: ['parent', 'reference_doctype', 'reference_docname', 'email'],
-      limit: 500,
-    },
-    onSuccess(rows) {
+    url: 'crm.api.event.get_event_participants',
+    params: { event_names: eventNames },
+    onSuccess(result) {
+      // result is a dict: { eventName: [{ reference_doctype, reference_docname, email }] }
+      // Convert to flat rows for uniform processing
+      const rows = []
+      Object.entries(result || {}).forEach(([parent, parts]) => {
+        ;(parts || []).forEach(p => rows.push({ parent, ...p }))
+      })
       // Build event → participant rows map
       const map = {}
-      ;(rows || []).forEach(r => {
+      rows.forEach(r => {
         if (!map[r.parent]) map[r.parent] = []
         map[r.parent].push(r)
       })
