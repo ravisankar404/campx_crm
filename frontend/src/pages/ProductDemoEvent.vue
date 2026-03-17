@@ -133,7 +133,7 @@
                   <dt class="text-ink-gray-5">Deal Status</dt>
                   <dd>
                     <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700">
-                      {{ deal.status }}
+                      {{ deal.status || '—' }}
                     </span>
                   </dd>
                 </div>
@@ -170,17 +170,22 @@
           <div v-if="participants.length" class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             <div
               v-for="p in participants"
-              :key="p.reference_docname"
+              :key="p.name || p.reference_docname"
               class="flex items-center gap-2.5 rounded-lg border px-3 py-2"
             >
               <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 font-bold text-sm">
-                {{ (userMap[p.reference_docname] || p.reference_docname || '?').charAt(0).toUpperCase() }}
+                {{ resolveDisplayName(p).charAt(0).toUpperCase() }}
               </div>
               <div class="min-w-0">
                 <p class="truncate text-sm font-semibold text-ink-gray-9">
-                  {{ userMap[p.reference_docname] || p.reference_docname?.split('@')[0] || '—' }}
+                  {{ resolveDisplayName(p) }}
                 </p>
-                <p class="truncate text-xs text-ink-gray-4">{{ p.reference_docname }}</p>
+                <!-- Show email if available and different from display name -->
+                <p v-if="p.email" class="truncate text-xs text-ink-gray-4">{{ p.email }}</p>
+                <!-- Fallback: show reference_docname as subtitle for non-email types -->
+                <p v-else-if="p.reference_doctype !== 'User'" class="truncate text-xs text-ink-gray-4">
+                  {{ p.reference_doctype }}
+                </p>
               </div>
             </div>
           </div>
@@ -255,7 +260,9 @@ const router = useRouter()
 const event = ref(null)
 const deal = ref(null)
 const comments = ref([])
-const userMap = ref({})
+// nameMap: keyed by reference_docname (Contact name, User email, Lead name, etc.)
+// value: human-readable display name
+const nameMap = ref({})
 const loading = ref(true)
 const orgLoading = ref(false)
 
@@ -266,14 +273,16 @@ createResource({
   onSuccess(data) {
     event.value = data
     loading.value = false
+
     // Resolve linked deal for org info
     if (data.reference_doctype === 'CRM Deal' && data.reference_docname) {
       fetchDeal(data.reference_docname)
     }
-    // Fetch attendee full names
-    const participants = data.event_participants || []
-    const emails = participants.filter(p => p.reference_doctype === 'User').map(p => p.reference_docname)
-    if (emails.length) fetchUserNames(emails)
+
+    // Batch-fetch names for all participant types
+    const parts = data.event_participants || []
+    fetchParticipantNames(parts)
+
     // Fetch activity/comments
     fetchComments()
   },
@@ -285,10 +294,7 @@ function fetchDeal(dealName) {
   orgLoading.value = true
   createResource({
     url: 'frappe.client.get',
-    params: {
-      doctype: 'CRM Deal',
-      name: dealName,
-    },
+    params: { doctype: 'CRM Deal', name: dealName },
     onSuccess(data) {
       deal.value = data
       orgLoading.value = false
@@ -297,22 +303,77 @@ function fetchDeal(dealName) {
   }).fetch()
 }
 
-// ── Fetch user full names ──
-function fetchUserNames(emails) {
-  createResource({
-    url: 'frappe.client.get_list',
-    params: {
-      doctype: 'User',
-      filters: [['name', 'in', emails]],
-      fields: ['name', 'full_name'],
-      limit: 100,
-    },
-    onSuccess(users) {
-      const map = { ...userMap.value }
-      users.forEach(u => { map[u.name] = u.full_name || u.name.split('@')[0] })
-      userMap.value = map
-    },
-  }).fetch()
+// ── Fetch names for all participant types (Contact, User, Lead, etc.) ──
+function fetchParticipantNames(parts) {
+  if (!parts.length) return
+
+  const contactNames = [...new Set(
+    parts.filter(p => p.reference_doctype === 'Contact' && p.reference_docname)
+         .map(p => p.reference_docname)
+  )]
+  const userEmails = [...new Set(
+    parts.filter(p => p.reference_doctype === 'User' && p.reference_docname)
+         .map(p => p.reference_docname)
+  )]
+  const leadNames = [...new Set(
+    parts.filter(p => p.reference_doctype === 'CRM Lead' && p.reference_docname)
+         .map(p => p.reference_docname)
+  )]
+
+  if (contactNames.length) {
+    createResource({
+      url: 'frappe.client.get_list',
+      params: {
+        doctype: 'Contact',
+        filters: [['name', 'in', contactNames]],
+        fields: ['name', 'full_name'],
+        limit: 100,
+      },
+      onSuccess(contacts) {
+        const map = { ...nameMap.value }
+        ;(contacts || []).forEach(c => { map[c.name] = c.full_name || c.name })
+        nameMap.value = map
+      },
+    }).fetch()
+  }
+
+  if (userEmails.length) {
+    createResource({
+      url: 'frappe.client.get_list',
+      params: {
+        doctype: 'User',
+        filters: [['name', 'in', userEmails]],
+        fields: ['name', 'full_name'],
+        limit: 100,
+      },
+      onSuccess(users) {
+        const map = { ...nameMap.value }
+        ;(users || []).forEach(u => { map[u.name] = u.full_name || u.name.split('@')[0] })
+        nameMap.value = map
+      },
+    }).fetch()
+  }
+
+  if (leadNames.length) {
+    createResource({
+      url: 'frappe.client.get_list',
+      params: {
+        doctype: 'CRM Lead',
+        filters: [['name', 'in', leadNames]],
+        fields: ['name', 'lead_name', 'first_name', 'last_name'],
+        limit: 100,
+      },
+      onSuccess(leads) {
+        const map = { ...nameMap.value }
+        ;(leads || []).forEach(l => {
+          map[l.name] = l.lead_name
+            || [l.first_name, l.last_name].filter(Boolean).join(' ')
+            || l.name
+        })
+        nameMap.value = map
+      },
+    }).fetch()
+  }
 }
 
 // ── Fetch comments / remarks ──
@@ -339,11 +400,22 @@ const participants = computed(() => event.value?.event_participants || [])
 const duration = computed(() => {
   if (!event.value?.starts_on || !event.value?.ends_on) return '—'
   const mins = Math.round((new Date(event.value.ends_on) - new Date(event.value.starts_on)) / 60000)
+  if (mins <= 0) return '—'
   if (mins < 60) return `${mins} min`
   const hrs = Math.floor(mins / 60)
   const rem = mins % 60
   return rem ? `${hrs}h ${rem}m` : `${hrs}h`
 })
+
+// ── Resolve display name for a participant ──
+// Priority: nameMap lookup > email field > reference_docname (trimmed)
+function resolveDisplayName(p) {
+  if (!p) return '—'
+  if (nameMap.value[p.reference_docname]) return nameMap.value[p.reference_docname]
+  if (p.email) return p.email.split('@')[0]
+  if (p.reference_docname) return p.reference_docname
+  return '—'
+}
 
 // ── Helpers ──
 function goBack() { router.push({ name: 'Product Demo' }) }

@@ -99,12 +99,17 @@ const router = useRouter()
 
 // Raw data
 const rawEvents = ref([])
-const orgMap = ref({})    // dealName → organization_name
-const attendeesMap = ref({}) // eventName → [full_name, ...]
-const userMap = ref({})   // email → full_name
+const orgMap = ref({})      // dealName → organization_name
+const attendeesMap = ref({}) // eventName → [{ reference_doctype, reference_docname, email }]
+const nameMap = ref({})     // reference_docname (Contact name OR User email) → display name
 const loading = ref(true)
 
-// Step 1: Fetch events
+// Track pending parallel fetches so we only hide spinner when all are done
+let pendingFetches = 0
+function startFetch() { pendingFetches++ }
+function endFetch() { pendingFetches--; if (pendingFetches <= 0) loading.value = false }
+
+// ── Step 1: Fetch events ──
 const eventsResource = createResource({
   url: 'frappe.client.get_list',
   params: {
@@ -116,24 +121,29 @@ const eventsResource = createResource({
   },
   onSuccess(data) {
     rawEvents.value = data || []
-    if (data && data.length) {
-      fetchDealOrgs(data)
-      fetchParticipants(data.map(e => e.name))
+    if (!data || !data.length) { loading.value = false; return }
+
+    // Kick off parallel lookups
+    const dealNames = [...new Set(
+      data.filter(e => e.reference_doctype === 'CRM Deal' && e.reference_docname)
+          .map(e => e.reference_docname)
+    )]
+    if (dealNames.length) {
+      startFetch()
+      fetchDealOrgs(dealNames)
     } else {
-      loading.value = false
+      // No deals to fetch, mark that branch done
+      startFetch(); endFetch()
     }
+
+    startFetch()
+    fetchParticipants(data.map(e => e.name))
   },
   onError() { loading.value = false },
 })
 
-// Step 2: Fetch org names from linked CRM Deals
-function fetchDealOrgs(events) {
-  const dealNames = [...new Set(
-    events.filter(e => e.reference_doctype === 'CRM Deal' && e.reference_docname)
-          .map(e => e.reference_docname)
-  )]
-  if (!dealNames.length) { loading.value = false; return }
-
+// ── Step 2: Fetch org names from linked CRM Deals ──
+function fetchDealOrgs(dealNames) {
   createResource({
     url: 'frappe.client.get_list',
     params: {
@@ -144,42 +154,86 @@ function fetchDealOrgs(events) {
     },
     onSuccess(deals) {
       const map = {}
-      deals.forEach(d => { map[d.name] = d.organization_name || d.organization || d.name })
+      ;(deals || []).forEach(d => { map[d.name] = d.organization_name || d.organization || d.name })
       orgMap.value = map
-      loading.value = false
+      endFetch()
     },
-    onError() { loading.value = false },
+    onError() { endFetch() },
   }).fetch()
 }
 
-// Step 3: Fetch all participants for listed events
+// ── Step 3: Fetch all participants for listed events ──
+// Event Participants can reference Contact, User, Lead, etc.
+// We use the email field (directly stored) as fallback display,
+// and batch-fetch proper full names for Contact + User types.
 function fetchParticipants(eventNames) {
   createResource({
     url: 'frappe.client.get_list',
     params: {
       doctype: 'Event Participants',
       filters: [['parent', 'in', eventNames]],
-      fields: ['parent', 'reference_docname', 'reference_doctype'],
+      fields: ['parent', 'reference_doctype', 'reference_docname', 'email'],
       limit: 500,
     },
     onSuccess(rows) {
-      // Collect unique user emails
-      const emails = [...new Set(
-        rows.filter(r => r.reference_doctype === 'User').map(r => r.reference_docname)
-      )]
-      // Build event → attendees map (use email for now, resolved later)
+      // Build event → participant rows map
       const map = {}
-      rows.forEach(r => {
+      ;(rows || []).forEach(r => {
         if (!map[r.parent]) map[r.parent] = []
-        map[r.parent].push(r.reference_docname)
+        map[r.parent].push(r)
       })
       attendeesMap.value = map
-      if (emails.length) fetchUserNames(emails)
+
+      // Batch-fetch Contact full names (reference_docname = Contact.name)
+      const contactNames = [...new Set(
+        (rows || [])
+          .filter(r => r.reference_doctype === 'Contact' && r.reference_docname)
+          .map(r => r.reference_docname)
+      )]
+
+      // Batch-fetch User full names (reference_docname = User.name = email)
+      const userEmails = [...new Set(
+        (rows || [])
+          .filter(r => r.reference_doctype === 'User' && r.reference_docname)
+          .map(r => r.reference_docname)
+      )]
+
+      // Batch-fetch Lead names (reference_docname = Lead.name)
+      const leadNames = [...new Set(
+        (rows || [])
+          .filter(r => r.reference_doctype === 'CRM Lead' && r.reference_docname)
+          .map(r => r.reference_docname)
+      )]
+
+      if (contactNames.length) fetchContactNames(contactNames)
+      if (userEmails.length) fetchUserNames(userEmails)
+      if (leadNames.length) fetchLeadNames(leadNames)
+
+      endFetch()
+    },
+    onError() { endFetch() },
+  }).fetch()
+}
+
+// ── Step 4a: Contact full names ──
+function fetchContactNames(names) {
+  createResource({
+    url: 'frappe.client.get_list',
+    params: {
+      doctype: 'Contact',
+      filters: [['name', 'in', names]],
+      fields: ['name', 'full_name'],
+      limit: 200,
+    },
+    onSuccess(contacts) {
+      const map = { ...nameMap.value }
+      ;(contacts || []).forEach(c => { map[c.name] = c.full_name || c.name })
+      nameMap.value = map
     },
   }).fetch()
 }
 
-// Step 4: Fetch full names of users
+// ── Step 4b: User full names ──
 function fetchUserNames(emails) {
   createResource({
     url: 'frappe.client.get_list',
@@ -190,24 +244,52 @@ function fetchUserNames(emails) {
       limit: 200,
     },
     onSuccess(users) {
-      const map = {}
-      users.forEach(u => { map[u.name] = u.full_name || u.name.split('@')[0] })
-      userMap.value = map
+      const map = { ...nameMap.value }
+      ;(users || []).forEach(u => { map[u.name] = u.full_name || u.name.split('@')[0] })
+      nameMap.value = map
+    },
+  }).fetch()
+}
+
+// ── Step 4c: Lead full names ──
+function fetchLeadNames(names) {
+  createResource({
+    url: 'frappe.client.get_list',
+    params: {
+      doctype: 'CRM Lead',
+      filters: [['name', 'in', names]],
+      fields: ['name', 'lead_name', 'first_name', 'last_name'],
+      limit: 200,
+    },
+    onSuccess(leads) {
+      const map = { ...nameMap.value }
+      ;(leads || []).forEach(l => {
+        map[l.name] = l.lead_name || [l.first_name, l.last_name].filter(Boolean).join(' ') || l.name
+      })
+      nameMap.value = map
     },
   }).fetch()
 }
 
 onMounted(() => eventsResource.fetch())
 
+// ── Resolve display name for a participant row ──
+function resolveAttendeeName(p) {
+  // 1. If we fetched a proper full name, use it
+  if (nameMap.value[p.reference_docname]) return nameMap.value[p.reference_docname]
+  // 2. Use the email field if present (nicely formatted)
+  if (p.email) return p.email.split('@')[0]
+  // 3. Fallback to reference_docname as-is
+  return p.reference_docname || '—'
+}
+
 const eventRows = computed(() =>
   rawEvents.value.map(e => ({
     ...e,
     _orgName: e.reference_doctype === 'CRM Deal'
-      ? orgMap.value[e.reference_docname] || null
+      ? (orgMap.value[e.reference_docname] || null)
       : (e.reference_doctype === 'CRM Organization' ? e.reference_docname : null),
-    _attendees: (attendeesMap.value[e.name] || []).map(email =>
-      userMap.value[email] || email.split('@')[0]
-    ),
+    _attendees: (attendeesMap.value[e.name] || []).map(resolveAttendeeName),
   }))
 )
 
