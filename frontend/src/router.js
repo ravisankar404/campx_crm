@@ -95,6 +95,17 @@ const routes = [
     component: () => import('@/pages/MyModule.vue'),
   },
   {
+    path: '/product-demo',
+    name: 'Product Demo',
+    component: () => import('@/pages/ProductDemo.vue'),
+  },
+  {
+    path: '/product-demo/:eventId',
+    name: 'Product Demo Event',
+    component: () => import('@/pages/ProductDemoEvent.vue'),
+    props: true,
+  },
+  {
     path: '/data-import',
     name: 'DataImportList',
     component: () => import('@/pages/DataImport.vue'),

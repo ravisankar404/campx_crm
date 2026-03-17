@@ -140,6 +140,7 @@
 <script setup>
 import LucideLayoutDashboard from '~icons/lucide/layout-dashboard'
 import LucideFlaskConical from '~icons/lucide/flask-conical'
+import LucidePresentation from '~icons/lucide/presentation'
 import CRMLogo from '@/components/Icons/CRMLogo.vue'
 import InviteIcon from '@/components/Icons/InviteIcon.vue'
 import ConvertIcon from '@/components/Icons/ConvertIcon.vue'
@@ -215,9 +216,9 @@ const links = [
     to: 'Deals',
   },
   {
-    label: 'My Module',
-    icon: LucideFlaskConical,
-    to: 'My Module',
+    label: 'Product Demo',
+    icon: LucidePresentation,
+    to: 'Product Demo',
   },
   {
     label: 'Contacts',
