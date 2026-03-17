@@ -9,7 +9,7 @@
     </div>
 
     <!-- Loading -->
-    <div v-if="events.list.loading" class="flex flex-1 items-center justify-center">
+    <div v-if="loading" class="flex flex-1 items-center justify-center">
       <div class="text-ink-gray-5">Loading events...</div>
     </div>
 
@@ -43,30 +43,25 @@
           <!-- Subject -->
           <div class="col-span-3 font-medium text-ink-gray-9 truncate">{{ event.subject }}</div>
 
-          <!-- Organization -->
-          <div class="col-span-2 text-sm text-ink-gray-6 truncate">
-            <span v-if="event.reference_doctype === 'CRM Organization'" class="flex items-center gap-1">
-              <LucideBuilding2 class="h-3 w-3 shrink-0" />
-              {{ event.reference_docname }}
-            </span>
-            <span v-else-if="event.reference_docname" class="text-ink-gray-4 text-xs">
-              {{ event.reference_doctype }}: {{ event.reference_docname }}
+          <!-- Organization Name (resolved from Deal) -->
+          <div class="col-span-2 text-sm truncate">
+            <span v-if="event._orgName" class="flex items-center gap-1 text-ink-gray-7">
+              <LucideBuilding2 class="h-3 w-3 shrink-0 text-ink-gray-4" />
+              {{ event._orgName }}
             </span>
             <span v-else class="text-ink-gray-3">—</span>
           </div>
 
           <!-- Attendees -->
           <div class="col-span-3">
-            <div v-if="event._participants && event._participants.length" class="flex flex-wrap gap-1">
+            <div v-if="event._attendees && event._attendees.length" class="flex flex-wrap gap-1">
               <span
-                v-for="p in event._participants.slice(0, 3)"
-                :key="p"
+                v-for="a in event._attendees.slice(0, 3)"
+                :key="a"
                 class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
-              >
-                {{ p }}
-              </span>
-              <span v-if="event._participants.length > 3" class="text-xs text-ink-gray-4">
-                +{{ event._participants.length - 3 }} more
+              >{{ a }}</span>
+              <span v-if="event._attendees.length > 3" class="text-xs text-ink-gray-4">
+                +{{ event._attendees.length - 3 }} more
               </span>
             </div>
             <span v-else class="text-xs text-ink-gray-3">No attendees</span>
@@ -93,61 +88,128 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { createListResource, createResource, Button } from 'frappe-ui'
+import { createResource, Button } from 'frappe-ui'
 import LucidePresentation from '~icons/lucide/presentation'
 import LucideCalendarPlus from '~icons/lucide/calendar-plus'
 import LucideBuilding2 from '~icons/lucide/building-2'
 
 const router = useRouter()
-const participantsMap = ref({})
 
-const events = createListResource({
-  doctype: 'Event',
-  fields: ['name', 'subject', 'starts_on', 'ends_on', 'status', 'event_type', 'event_category', 'location', 'reference_doctype', 'reference_docname'],
-  orderBy: 'starts_on desc',
-  pageLength: 50,
-  auto: true,
+// Raw data
+const rawEvents = ref([])
+const orgMap = ref({})    // dealName → organization_name
+const attendeesMap = ref({}) // eventName → [full_name, ...]
+const userMap = ref({})   // email → full_name
+const loading = ref(true)
+
+// Step 1: Fetch events
+const eventsResource = createResource({
+  url: 'frappe.client.get_list',
+  params: {
+    doctype: 'Event',
+    fields: ['name', 'subject', 'starts_on', 'ends_on', 'status', 'event_type',
+             'event_category', 'location', 'reference_doctype', 'reference_docname'],
+    order_by: 'starts_on desc',
+    limit: 50,
+  },
   onSuccess(data) {
-    // Fetch participants for all events
+    rawEvents.value = data || []
     if (data && data.length) {
-      fetchAllParticipants(data.map(e => e.name))
+      fetchDealOrgs(data)
+      fetchParticipants(data.map(e => e.name))
+    } else {
+      loading.value = false
     }
   },
+  onError() { loading.value = false },
 })
 
-const eventRows = computed(() => {
-  return (events.list?.data || []).map(e => ({
-    ...e,
-    _participants: participantsMap.value[e.name] || [],
-  }))
-})
+// Step 2: Fetch org names from linked CRM Deals
+function fetchDealOrgs(events) {
+  const dealNames = [...new Set(
+    events.filter(e => e.reference_doctype === 'CRM Deal' && e.reference_docname)
+          .map(e => e.reference_docname)
+  )]
+  if (!dealNames.length) { loading.value = false; return }
 
-function fetchAllParticipants(eventNames) {
-  const participantsResource = createResource({
+  createResource({
+    url: 'frappe.client.get_list',
+    params: {
+      doctype: 'CRM Deal',
+      filters: [['name', 'in', dealNames]],
+      fields: ['name', 'organization_name', 'organization'],
+      limit: 100,
+    },
+    onSuccess(deals) {
+      const map = {}
+      deals.forEach(d => { map[d.name] = d.organization_name || d.organization || d.name })
+      orgMap.value = map
+      loading.value = false
+    },
+    onError() { loading.value = false },
+  }).fetch()
+}
+
+// Step 3: Fetch all participants for listed events
+function fetchParticipants(eventNames) {
+  createResource({
     url: 'frappe.client.get_list',
     params: {
       doctype: 'Event Participants',
       filters: [['parent', 'in', eventNames]],
-      fields: ['parent', 'reference_docname'],
+      fields: ['parent', 'reference_docname', 'reference_doctype'],
       limit: 500,
     },
     onSuccess(rows) {
+      // Collect unique user emails
+      const emails = [...new Set(
+        rows.filter(r => r.reference_doctype === 'User').map(r => r.reference_docname)
+      )]
+      // Build event → attendees map (use email for now, resolved later)
       const map = {}
       rows.forEach(r => {
         if (!map[r.parent]) map[r.parent] = []
-        // Show short name (email before @)
-        const short = r.reference_docname?.includes('@')
-          ? r.reference_docname.split('@')[0]
-          : r.reference_docname
-        map[r.parent].push(short)
+        map[r.parent].push(r.reference_docname)
       })
-      participantsMap.value = map
+      attendeesMap.value = map
+      if (emails.length) fetchUserNames(emails)
     },
-  })
-  participantsResource.fetch()
+  }).fetch()
 }
+
+// Step 4: Fetch full names of users
+function fetchUserNames(emails) {
+  createResource({
+    url: 'frappe.client.get_list',
+    params: {
+      doctype: 'User',
+      filters: [['name', 'in', emails]],
+      fields: ['name', 'full_name'],
+      limit: 200,
+    },
+    onSuccess(users) {
+      const map = {}
+      users.forEach(u => { map[u.name] = u.full_name || u.name.split('@')[0] })
+      userMap.value = map
+    },
+  }).fetch()
+}
+
+onMounted(() => eventsResource.fetch())
+
+const eventRows = computed(() =>
+  rawEvents.value.map(e => ({
+    ...e,
+    _orgName: e.reference_doctype === 'CRM Deal'
+      ? orgMap.value[e.reference_docname] || null
+      : (e.reference_doctype === 'CRM Organization' ? e.reference_docname : null),
+    _attendees: (attendeesMap.value[e.name] || []).map(email =>
+      userMap.value[email] || email.split('@')[0]
+    ),
+  }))
+)
 
 function formatDate(dateStr) {
   if (!dateStr) return '—'
@@ -161,6 +223,7 @@ function statusClass(status) {
   return {
     Open: 'bg-orange-100 text-orange-700',
     Closed: 'bg-green-100 text-green-700',
+    Completed: 'bg-green-100 text-green-700',
     Cancelled: 'bg-red-100 text-red-700',
   }[status] || 'bg-gray-100 text-gray-700'
 }
