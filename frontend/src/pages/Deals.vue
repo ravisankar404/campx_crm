@@ -8,12 +8,6 @@
         v-if="dealsListView?.customListActions"
         :actions="dealsListView.customListActions"
       />
-      <Button
-        variant="solid"
-        :label="__('Create')"
-        iconLeft="plus"
-        @click="showDealModal = true"
-      />
     </template>
   </LayoutHeader>
   <ViewControls
