@@ -27,10 +27,10 @@
       <div class="mx-auto max-w-5xl p-5 space-y-4">
 
         <!-- ── Title card ── -->
-        <div class="rounded-xl border bg-white p-5 shadow-sm">
+        <div class="rounded-xl border bg-surface-white p-5 shadow-sm">
           <div class="flex items-start justify-between gap-4">
             <div class="flex items-center gap-3">
-              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 font-bold text-lg">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 font-bold text-lg">
                 {{ event.subject?.charAt(0)?.toUpperCase() }}
               </div>
               <div>
@@ -53,7 +53,7 @@
         <div class="grid grid-cols-3 gap-4">
 
           <!-- Schedule -->
-          <div class="rounded-xl border bg-white p-4 shadow-sm">
+          <div class="rounded-xl border bg-surface-white p-4 shadow-sm">
             <h3 class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-ink-gray-4">
               <LucideCalendar class="h-3.5 w-3.5" /> Schedule
             </h3>
@@ -68,7 +68,7 @@
               </div>
               <div class="flex justify-between text-sm">
                 <dt class="text-ink-gray-5">Duration</dt>
-                <dd class="font-semibold text-indigo-600">{{ duration }}</dd>
+                <dd class="font-semibold text-indigo-600 dark:text-indigo-400">{{ duration }}</dd>
               </div>
               <div class="flex justify-between text-sm">
                 <dt class="text-ink-gray-5">All Day</dt>
@@ -82,7 +82,7 @@
           </div>
 
           <!-- Details -->
-          <div class="rounded-xl border bg-white p-4 shadow-sm">
+          <div class="rounded-xl border bg-surface-white p-4 shadow-sm">
             <h3 class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-ink-gray-4">
               <LucideInfo class="h-3.5 w-3.5" /> Details
             </h3>
@@ -111,7 +111,7 @@
           </div>
 
           <!-- Organization (resolved from Deal) -->
-          <div class="rounded-xl border bg-white p-4 shadow-sm">
+          <div class="rounded-xl border bg-surface-white p-4 shadow-sm">
             <h3 class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-ink-gray-4">
               <LucideBuilding2 class="h-3.5 w-3.5" /> Organization
             </h3>
@@ -120,7 +120,7 @@
             <!-- Org details from linked Deal -->
             <div v-else-if="deal" class="space-y-2">
               <div class="flex items-center gap-2 mb-3">
-                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 font-bold">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 font-bold">
                   {{ (deal.organization_name || deal.organization || '?').charAt(0).toUpperCase() }}
                 </div>
                 <div>
@@ -132,7 +132,7 @@
                 <div class="flex justify-between text-sm">
                   <dt class="text-ink-gray-5">Deal Status</dt>
                   <dd>
-                    <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700">
+                    <span class="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
                       {{ deal.status || '—' }}
                     </span>
                   </dd>
@@ -160,10 +160,10 @@
         </div>
 
         <!-- ── Attendees ── -->
-        <div class="rounded-xl border bg-white p-4 shadow-sm">
+        <div class="rounded-xl border bg-surface-white p-4 shadow-sm">
           <h3 class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-ink-gray-4">
             <LucideUsers class="h-3.5 w-3.5" /> Attendees
-            <span class="ml-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700 font-semibold">
+            <span class="ml-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 font-semibold">
               {{ participants.length }}
             </span>
           </h3>
@@ -173,7 +173,7 @@
               :key="p.name || p.reference_docname"
               class="flex items-center gap-2.5 rounded-lg border px-3 py-2"
             >
-              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 font-bold text-sm">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 font-bold text-sm">
                 {{ resolveDisplayName(p).charAt(0).toUpperCase() }}
               </div>
               <div class="min-w-0">
@@ -193,10 +193,10 @@
         </div>
 
         <!-- ── Activity / Remarks Log ── -->
-        <div class="rounded-xl border bg-white p-4 shadow-sm">
+        <div class="rounded-xl border bg-surface-white p-4 shadow-sm">
           <h3 class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-ink-gray-4">
             <LucideMessageSquare class="h-3.5 w-3.5" /> Activity & Remarks
-            <span v-if="comments.length" class="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+            <span v-if="comments.length" class="ml-1 rounded-full bg-surface-gray-2 px-2 py-0.5 text-xs text-ink-gray-6">
               {{ comments.length }}
             </span>
           </h3>
@@ -208,7 +208,7 @@
               :key="c.name"
               class="flex gap-3"
             >
-              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600 text-xs font-bold mt-0.5">
+              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-gray-2 text-ink-gray-6 text-xs font-bold mt-0.5">
                 {{ (c.comment_by || 'S').charAt(0).toUpperCase() }}
               </div>
               <div class="flex-1 min-w-0">
@@ -217,7 +217,7 @@
                   <span class="text-xs text-ink-gray-4">{{ formatDate(c.creation) }}</span>
                   <span
                     v-if="c.comment_type && c.comment_type !== 'Comment'"
-                    class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500"
+                    class="rounded bg-surface-gray-2 px-1.5 py-0.5 text-xs text-ink-gray-5"
                   >{{ c.comment_type }}</span>
                 </div>
                 <div class="text-sm text-ink-gray-7 rounded-lg bg-surface-gray-1 px-3 py-2 border" v-html="c.content" />
@@ -228,7 +228,7 @@
         </div>
 
         <!-- ── Description ── -->
-        <div v-if="event.description" class="rounded-xl border bg-white p-4 shadow-sm">
+        <div v-if="event.description" class="rounded-xl border bg-surface-white p-4 shadow-sm">
           <h3 class="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-ink-gray-4">
             <LucideFileText class="h-3.5 w-3.5" /> Description
           </h3>
@@ -436,10 +436,10 @@ function formatDate(dateStr) {
 
 function statusClass(status) {
   return {
-    Open: 'bg-orange-100 text-orange-700',
-    Closed: 'bg-green-100 text-green-700',
-    Completed: 'bg-green-100 text-green-700',
-    Cancelled: 'bg-red-100 text-red-700',
-  }[status] || 'bg-gray-100 text-gray-700'
+    Open: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+    Closed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    Completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    Cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  }[status] || 'bg-surface-gray-2 text-ink-gray-7'
 }
 </script>

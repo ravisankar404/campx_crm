@@ -1,317 +1,201 @@
 <template>
-  <div class="flex h-full flex-col">
-    <!-- Header -->
-    <div class="flex items-center justify-between border-b px-5 py-3">
-      <h1 class="text-xl font-semibold text-ink-gray-9">Product Demo</h1>
+  <LayoutHeader>
+    <template #left-header>
+      <ViewBreadcrumbs v-model="viewControls" routeName="Product Demo" />
+    </template>
+    <template #right-header>
       <Button label="Schedule Event" variant="solid" @click="openNewEvent">
         <template #prefix><LucideCalendarPlus class="h-4 w-4" /></template>
       </Button>
-    </div>
-
-    <!-- Loading -->
-    <div v-if="loading" class="flex flex-1 items-center justify-center">
-      <div class="text-ink-gray-5">Loading events...</div>
-    </div>
-
-    <!-- Empty -->
-    <div v-else-if="!eventRows.length" class="flex flex-1 flex-col items-center justify-center gap-3 text-ink-gray-5">
-      <LucidePresentation class="h-16 w-16 opacity-30" />
-      <p class="text-lg font-medium">No Product Demo events yet</p>
-      <p class="text-sm">Click "Schedule Event" to create your first demo.</p>
-    </div>
-
-    <!-- Table -->
-    <div v-else class="flex-1 overflow-y-auto p-5">
-      <div class="overflow-hidden rounded-lg border">
-        <!-- Header -->
-        <div class="grid grid-cols-12 gap-3 border-b bg-surface-gray-1 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">
-          <div class="col-span-3">Subject</div>
-          <div class="col-span-2">Organization</div>
-          <div class="col-span-3">Attendees</div>
-          <div class="col-span-1">Type</div>
-          <div class="col-span-1">Status</div>
-          <div class="col-span-2">Starts On</div>
-        </div>
-
-        <!-- Rows -->
-        <div
-          v-for="event in eventRows"
-          :key="event.name"
-          class="grid cursor-pointer grid-cols-12 items-center gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-surface-gray-1 transition-colors"
-          @click="openEvent(event.name)"
-        >
-          <!-- Subject -->
-          <div class="col-span-3 font-medium text-ink-gray-9 truncate">{{ event.subject }}</div>
-
-          <!-- Organization Name (resolved from Deal) -->
-          <div class="col-span-2 text-sm truncate">
-            <span v-if="event._orgName" class="flex items-center gap-1 text-ink-gray-7">
-              <LucideBuilding2 class="h-3 w-3 shrink-0 text-ink-gray-4" />
-              {{ event._orgName }}
-            </span>
-            <span v-else class="text-ink-gray-3">—</span>
-          </div>
-
-          <!-- Attendees -->
-          <div class="col-span-3">
-            <div v-if="event._attendees && event._attendees.length" class="flex flex-wrap gap-1">
-              <span
-                v-for="a in event._attendees.slice(0, 3)"
-                :key="a"
-                class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
-              >{{ a }}</span>
-              <span v-if="event._attendees.length > 3" class="text-xs text-ink-gray-4">
-                +{{ event._attendees.length - 3 }} more
-              </span>
-            </div>
-            <span v-else class="text-xs text-ink-gray-3">No attendees</span>
-          </div>
-
-          <!-- Type -->
-          <div class="col-span-1 text-sm text-ink-gray-6">{{ event.event_type || '—' }}</div>
-
-          <!-- Status -->
-          <div class="col-span-1">
-            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" :class="statusClass(event.status)">
-              {{ event.status }}
-            </span>
-          </div>
-
-          <!-- Date -->
-          <div class="col-span-2 text-sm text-ink-gray-6">{{ formatDate(event.starts_on) }}</div>
-        </div>
-      </div>
-
-      <div class="mt-3 text-right text-xs text-ink-gray-4">Showing {{ eventRows.length }} events</div>
-    </div>
-  </div>
+    </template>
+  </LayoutHeader>
+  <ViewControls
+    ref="viewControls"
+    v-model="events"
+    v-model:loadMore="loadMore"
+    v-model:resizeColumn="triggerResize"
+    v-model:updatedPageCount="updatedPageCount"
+    doctype="Event"
+    :options="{ allowedViews: ['list'] }"
+  />
+  <ProductDemoListView
+    v-if="events.data && rows.length"
+    ref="productDemoListView"
+    v-model="events.data.page_length_count"
+    :rows="rows"
+    :columns="columns"
+    :options="{
+      resizeColumn: true,
+      rowCount: events.data.row_count,
+      totalCount: events.data.total_count,
+    }"
+    @loadMore="() => loadMore++"
+    @columnWidthUpdated="() => triggerResize++"
+    @updatePageCount="(count) => (updatedPageCount = count)"
+  />
+  <EmptyState
+    v-else-if="events.data && !rows.length"
+    name="Product Demo"
+    icon="calendar"
+  />
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { createResource, Button } from 'frappe-ui'
-import LucidePresentation from '~icons/lucide/presentation'
+import ViewBreadcrumbs from '@/components/ViewBreadcrumbs.vue'
+import LayoutHeader from '@/components/LayoutHeader.vue'
+import ViewControls from '@/components/ViewControls.vue'
+import ProductDemoListView from '@/components/ListViews/ProductDemoListView.vue'
+import EmptyState from '@/components/ListViews/EmptyState.vue'
 import LucideCalendarPlus from '~icons/lucide/calendar-plus'
-import LucideBuilding2 from '~icons/lucide/building-2'
+import { createResource, Button } from 'frappe-ui'
+import { formatDate, timeAgo } from '@/utils'
+import { ref, computed, reactive, watch } from 'vue'
 
-const router = useRouter()
+const viewControls = ref(null)
+const productDemoListView = ref(null)
 
-// Raw data
-const rawEvents = ref([])
-const orgMap = ref({})      // dealName → organization_name
-const attendeesMap = ref({}) // eventName → [{ reference_doctype, reference_docname, email }]
-const nameMap = ref({})     // reference_docname (Contact name OR User email) → display name
-const loading = ref(true)
+const events = ref({})
+const loadMore = ref(1)
+const triggerResize = ref(1)
+const updatedPageCount = ref(20)
 
-// Track pending parallel fetches so we only hide spinner when all are done
-let pendingFetches = 0
-function startFetch() { pendingFetches++ }
-function endFetch() { pendingFetches--; if (pendingFetches <= 0) loading.value = false }
+// Enrichment data keyed by event name (org name + attendees)
+const orgNames = reactive({})    // { [eventName]: orgNameString }
+const attendees = reactive({})   // { [eventName]: ['Name1', 'Name2'] }
 
-// ── Step 1: Fetch events ──
-const eventsResource = createResource({
-  url: 'frappe.client.get_list',
-  params: {
-    doctype: 'Event',
-    fields: ['name', 'subject', 'starts_on', 'ends_on', 'status', 'event_type',
-             'event_category', 'location', 'reference_doctype', 'reference_docname'],
-    order_by: 'starts_on desc',
-    limit: 50,
-  },
-  onSuccess(data) {
-    rawEvents.value = data || []
-    if (!data || !data.length) { loading.value = false; return }
+const FALLBACK_KEYS = new Set(['name', 'modified'])
 
-    // Kick off parallel lookups
-    const dealNames = [...new Set(
-      data.filter(e => e.reference_doctype === 'CRM Deal' && e.reference_docname)
-          .map(e => e.reference_docname)
-    )]
-    if (dealNames.length) {
-      startFetch()
-      fetchDealOrgs(dealNames)
-    } else {
-      // No deals to fetch, mark that branch done
-      startFetch(); endFetch()
-    }
-
-    startFetch()
-    fetchParticipants(data.map(e => e.name))
-  },
-  onError() { loading.value = false },
+const columns = computed(() => {
+  const viewCols = (events.value?.data?.columns || []).filter(
+    (c) => !FALLBACK_KEYS.has(c.key || c.value),
+  )
+  // Default columns – CustomEvent.default_list_data() provides these
+  const base = viewCols.length
+    ? viewCols
+    : [
+        { key: 'subject',    label: 'Subject',   type: 'Data',     width: '18rem' },
+        { key: 'event_type', label: 'Type',      type: 'Data',     width: '8rem'  },
+        { key: 'status',     label: 'Status',    type: 'Select',   width: '10rem' },
+        { key: 'starts_on',  label: 'Starts On', type: 'Datetime', width: '12rem' },
+      ]
+  const enriched = [
+    { key: '_orgName',   label: 'Organization', type: 'Data', width: '12rem' },
+    { key: '_attendees', label: 'Attendees',    type: 'Data', width: '16rem' },
+  ]
+  const existing = new Set(base.map((c) => c.key || c.value))
+  return [...base, ...enriched.filter((c) => !existing.has(c.key))]
 })
 
-// ── Step 2: Fetch org names from linked CRM Deals ──
-function fetchDealOrgs(dealNames) {
+// rows: built directly from events.data.data (which now has full fields via CustomEvent.default_list_data)
+// _orgName and _attendees are patched in from reactive maps once enrichment arrives.
+const rows = computed(() =>
+  (events.value?.data?.data || []).map((e) => ({
+    name:       e.name,
+    subject:    { label: e.subject    || '' },
+    event_type: { label: e.event_type || '' },
+    status:     { label: e.status     || '', color: statusColor(e.status) },
+    starts_on:  e.starts_on
+      ? { label: formatDate(e.starts_on, '', true, true), timeAgo: __(timeAgo(e.starts_on)) }
+      : { label: '' },
+    _orgName:   { label: orgNames[e.name]   ?? null },
+    _attendees: attendees[e.name] || [],
+  })),
+)
+
+// Kick off enrichment (org name + attendees) whenever the list refreshes
+watch(
+  () => events.value?.data?.data,
+  (stubs) => {
+    if (!stubs?.length) return
+    const names = stubs.map((s) => s.name)
+    fetchOrgNames(stubs)
+    fetchAttendees(names)
+  },
+  { immediate: true },
+)
+
+// ── Org name: resolve from the linked CRM Deal ──
+function fetchOrgNames(stubs) {
+  const dealMap = {}
+  stubs.forEach((s) => {
+    if (s.reference_doctype === 'CRM Deal' && s.reference_docname) {
+      dealMap[s.reference_docname] = s.name
+    }
+  })
+  const dealNames = Object.keys(dealMap)
+  if (!dealNames.length) return
+
   createResource({
     url: 'frappe.client.get_list',
     params: {
       doctype: 'CRM Deal',
       filters: [['name', 'in', dealNames]],
       fields: ['name', 'organization_name', 'organization'],
-      limit: 100,
+      limit: dealNames.length + 5,
     },
     onSuccess(deals) {
-      const map = {}
-      ;(deals || []).forEach(d => { map[d.name] = d.organization_name || d.organization || d.name })
-      orgMap.value = map
-      endFetch()
+      ;(deals || []).forEach((d) => {
+        const eventName = dealMap[d.name]
+        if (eventName) {
+          orgNames[eventName] = d.organization_name || d.organization || d.name
+        }
+      })
     },
-    onError() { endFetch() },
   }).fetch()
 }
 
-// ── Step 3: Fetch all participants for listed events ──
-// frappe.client.get_list cannot query child doctypes directly.
-// We use a custom whitelist method that uses frappe.db.get_all instead.
-function fetchParticipants(eventNames) {
+// ── Attendees: resolve display names via existing API ──
+function fetchAttendees(eventNames) {
   createResource({
     url: 'crm.api.event.get_event_participants',
     params: { event_names: eventNames },
     onSuccess(result) {
-      // result is a dict: { eventName: [{ reference_doctype, reference_docname, email }] }
-      // Convert to flat rows for uniform processing
-      const rows = []
-      Object.entries(result || {}).forEach(([parent, parts]) => {
-        ;(parts || []).forEach(p => rows.push({ parent, ...p }))
+      const participantRows = Object.values(result || {}).flat()
+      const contactNames = [...new Set(participantRows.filter((r) => r.reference_doctype === 'Contact'  && r.reference_docname).map((r) => r.reference_docname))]
+      const userEmails   = [...new Set(participantRows.filter((r) => r.reference_doctype === 'User'     && r.reference_docname).map((r) => r.reference_docname))]
+      const leadNames    = [...new Set(participantRows.filter((r) => r.reference_doctype === 'CRM Lead' && r.reference_docname).map((r) => r.reference_docname))]
+      resolveAttendeeNames(result || {}, contactNames, userEmails, leadNames)
+    },
+  }).fetch()
+}
+
+function resolveAttendeeNames(participantMap, contactNames, userEmails, leadNames) {
+  const nameMap = {}
+  let pending = 0
+
+  function apply() {
+    Object.entries(participantMap).forEach(([eventName, parts]) => {
+      attendees[eventName] = (parts || []).map((p) => {
+        if (nameMap[p.reference_docname]) return nameMap[p.reference_docname]
+        if (p.email) return p.email.split('@')[0]
+        return p.reference_docname || '—'
       })
-      // Build event → participant rows map
-      const map = {}
-      rows.forEach(r => {
-        if (!map[r.parent]) map[r.parent] = []
-        map[r.parent].push(r)
-      })
-      attendeesMap.value = map
+    })
+  }
 
-      // Batch-fetch Contact full names (reference_docname = Contact.name)
-      const contactNames = [...new Set(
-        (rows || [])
-          .filter(r => r.reference_doctype === 'Contact' && r.reference_docname)
-          .map(r => r.reference_docname)
-      )]
+  function done() { if (--pending <= 0) apply() }
 
-      // Batch-fetch User full names (reference_docname = User.name = email)
-      const userEmails = [...new Set(
-        (rows || [])
-          .filter(r => r.reference_doctype === 'User' && r.reference_docname)
-          .map(r => r.reference_docname)
-      )]
+  function fetchNames(doctype, filters, field, fallback) {
+    pending++
+    createResource({
+      url: 'frappe.client.get_list',
+      params: { doctype, filters, fields: ['name', field], limit: 200 },
+      onSuccess(docs) {
+        ;(docs || []).forEach((d) => { nameMap[d.name] = d[field] || fallback(d) })
+        done()
+      },
+      onError() { done() },
+    }).fetch()
+  }
 
-      // Batch-fetch Lead names (reference_docname = Lead.name)
-      const leadNames = [...new Set(
-        (rows || [])
-          .filter(r => r.reference_doctype === 'CRM Lead' && r.reference_docname)
-          .map(r => r.reference_docname)
-      )]
-
-      if (contactNames.length) fetchContactNames(contactNames)
-      if (userEmails.length) fetchUserNames(userEmails)
-      if (leadNames.length) fetchLeadNames(leadNames)
-
-      endFetch()
-    },
-    onError() { endFetch() },
-  }).fetch()
+  if (!contactNames.length && !userEmails.length && !leadNames.length) { apply(); return }
+  if (contactNames.length) fetchNames('Contact',  [['name', 'in', contactNames]], 'full_name', (d) => d.name)
+  if (userEmails.length)   fetchNames('User',      [['name', 'in', userEmails]],   'full_name', (d) => d.name.split('@')[0])
+  if (leadNames.length)    fetchNames('CRM Lead',  [['name', 'in', leadNames]],    'lead_name', (d) => [d.first_name, d.last_name].filter(Boolean).join(' ') || d.name)
 }
 
-// ── Step 4a: Contact full names ──
-function fetchContactNames(names) {
-  createResource({
-    url: 'frappe.client.get_list',
-    params: {
-      doctype: 'Contact',
-      filters: [['name', 'in', names]],
-      fields: ['name', 'full_name'],
-      limit: 200,
-    },
-    onSuccess(contacts) {
-      const map = { ...nameMap.value }
-      ;(contacts || []).forEach(c => { map[c.name] = c.full_name || c.name })
-      nameMap.value = map
-    },
-  }).fetch()
-}
-
-// ── Step 4b: User full names ──
-function fetchUserNames(emails) {
-  createResource({
-    url: 'frappe.client.get_list',
-    params: {
-      doctype: 'User',
-      filters: [['name', 'in', emails]],
-      fields: ['name', 'full_name'],
-      limit: 200,
-    },
-    onSuccess(users) {
-      const map = { ...nameMap.value }
-      ;(users || []).forEach(u => { map[u.name] = u.full_name || u.name.split('@')[0] })
-      nameMap.value = map
-    },
-  }).fetch()
-}
-
-// ── Step 4c: Lead full names ──
-function fetchLeadNames(names) {
-  createResource({
-    url: 'frappe.client.get_list',
-    params: {
-      doctype: 'CRM Lead',
-      filters: [['name', 'in', names]],
-      fields: ['name', 'lead_name', 'first_name', 'last_name'],
-      limit: 200,
-    },
-    onSuccess(leads) {
-      const map = { ...nameMap.value }
-      ;(leads || []).forEach(l => {
-        map[l.name] = l.lead_name || [l.first_name, l.last_name].filter(Boolean).join(' ') || l.name
-      })
-      nameMap.value = map
-    },
-  }).fetch()
-}
-
-onMounted(() => eventsResource.fetch())
-
-// ── Resolve display name for a participant row ──
-function resolveAttendeeName(p) {
-  // 1. If we fetched a proper full name, use it
-  if (nameMap.value[p.reference_docname]) return nameMap.value[p.reference_docname]
-  // 2. Use the email field if present (nicely formatted)
-  if (p.email) return p.email.split('@')[0]
-  // 3. Fallback to reference_docname as-is
-  return p.reference_docname || '—'
-}
-
-const eventRows = computed(() =>
-  rawEvents.value.map(e => ({
-    ...e,
-    _orgName: e.reference_doctype === 'CRM Deal'
-      ? (orgMap.value[e.reference_docname] || null)
-      : (e.reference_doctype === 'CRM Organization' ? e.reference_docname : null),
-    _attendees: (attendeesMap.value[e.name] || []).map(resolveAttendeeName),
-  }))
-)
-
-function formatDate(dateStr) {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-}
-
-function statusClass(status) {
-  return {
-    Open: 'bg-orange-100 text-orange-700',
-    Closed: 'bg-green-100 text-green-700',
-    Completed: 'bg-green-100 text-green-700',
-    Cancelled: 'bg-red-100 text-red-700',
-  }[status] || 'bg-gray-100 text-gray-700'
-}
-
-function openEvent(name) {
-  router.push({ name: 'Product Demo Event', params: { eventId: name } })
+function statusColor(status) {
+  return { Open: 'orange', Completed: 'green', Closed: 'green', Cancelled: 'red' }[status] || 'gray'
 }
 
 function openNewEvent() {

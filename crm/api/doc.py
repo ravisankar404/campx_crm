@@ -326,8 +326,11 @@ def get_data(
 	data = []
 	_list = get_controller(doctype)
 	default_rows = []
+	default_columns = []
 	if hasattr(_list, "default_list_data"):
-		default_rows = _list.default_list_data().get("rows")
+		_default = _list.default_list_data()
+		default_rows = _default.get("rows")
+		default_columns = _default.get("columns")
 
 	meta = frappe.get_meta(doctype)
 
@@ -356,12 +359,18 @@ def get_data(
 
 		if not custom_view and frappe.db.exists("CRM View Settings", default_view_filters):
 			list_view_settings = frappe.get_doc("CRM View Settings", default_view_filters)
-			columns = frappe.parse_json(list_view_settings.columns)
-			rows = frappe.parse_json(list_view_settings.rows)
-			is_default = False
-		elif not custom_view or (is_default and hasattr(_list, "default_list_data")):
+			saved_columns = frappe.parse_json(list_view_settings.columns)
+			saved_rows = frappe.parse_json(list_view_settings.rows)
+			if saved_columns or saved_rows:
+				columns = saved_columns
+				rows = saved_rows
+				is_default = False
+			else:
+				columns = default_columns
+				rows = default_rows
+		elif not custom_view or (is_default and default_columns):
+			columns = default_columns
 			rows = default_rows
-			columns = _list.default_list_data().get("columns")
 
 		# check if rows has all keys from columns if not add them
 		for column in columns:
